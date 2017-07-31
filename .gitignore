@@ -1,10 +1,17 @@
 *.[oda]
 *.~
 *.swp
+*.gcno
+*.out
 tags
 gh-pages
 *.tests
+*.sancov
+*.profraw
+*.profdata
 *.pyc
+.dep.mk
+out/
 lib/.CC
 lib/.DEF
 lib/.LN
@@ -28,6 +35,7 @@ bin/*.diff
 bin/data/*
 data/*
 tool/*
-config.mk
+lib/config.mk
 build
 site/_site
+site/_doxygen

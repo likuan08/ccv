@@ -1,14 +1,23 @@
 include ../../lib/config.mk
 
-# CC += -g -fsanitize=address -fno-omit-frame-pointer # -fprofile-arcs -ftest-coverage
 LDFLAGS := -L"../../lib" -lccv $(LDFLAGS)
 CFLAGS := -O3 -Wall -I"../../lib" -I"../" $(CFLAGS)
 TARGETS = algebra.tests util.tests numeric.tests basic.tests image_processing.tests memory.tests io.tests transform.tests convnet.tests 3rdparty.tests output.tests
 
+TARGET_SRCS := $(patsubst %,%.c,$(TARGETS))
+
+.PRECIOUS: $(patsubst %,%.o,$(TARGETS))
+
+.PHONY: release all test clean dep
+
+release: all
+
+include ../../lib/scheme.mk
+
 all: $(TARGETS)
 
-test: all
-	@for test in $(TARGETS) ; do ./"$$test" || exit ; done
+test:
+	@for test in $(TARGETS) ; do LLVM_PROFILE_FILE="$$test.profraw" ./"$$test" || exit ; done
 
 clean:
 	${MAKE} clean -C ../../lib ; rm -f *.o $(TARGETS)
@@ -19,5 +28,14 @@ clean:
 libccv.a:
 	${MAKE} -C ../../lib
 
-%.o: %.c ../../lib/ccv.h
+%.o: %.c
 	$(CC) $< -o $@ -c $(CFLAGS)
+
+.gitignore:
+	echo $(TARGETS) | tr ' ' '\n' > .gitignore
+
+dep: .dep.mk
+.dep.mk: $(TARGET_SRCS)
+	$(CC) $(CFLAGS) -MM $^ > .dep.mk
+
+-include .dep.mk

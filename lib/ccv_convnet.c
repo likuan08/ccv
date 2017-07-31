@@ -9,6 +9,9 @@
 #include <gsl/gsl_rng.h>
 #include <gsl/gsl_randist.h>
 #endif
+#ifdef USE_OPENMP
+#include <omp.h>
+#endif
 #ifdef USE_DISPATCH
 #include <dispatch/dispatch.h>
 #endif
@@ -16,7 +19,7 @@
 #include "cuda/cwc.h"
 #endif
 #include "3rdparty/sqlite3/sqlite3.h"
-#include "inl/ccv_convnet_inl.h"
+#include "inc/ccv_convnet_internal.h"
 
 #ifndef CASE_TESTS
 
@@ -99,7 +102,7 @@ ccv_convnet_t* ccv_convnet_new(int use_cwc_accel, ccv_size_t input, ccv_convnet_
 
 int ccv_convnet_verify(ccv_convnet_t* convnet, int output)
 {
-	int i, out_rows, out_cols, out_partition;
+	int i, out_rows, out_cols, out_partition, out_channels;
 	if (convnet->count < 1)
 		return -1;
 	// the last layer has to be full connect
@@ -108,12 +111,24 @@ int ccv_convnet_verify(ccv_convnet_t* convnet, int output)
 	// you cannot enable relu on the last layer
 	if (convnet->layers[convnet->count - 1].net.full_connect.relu)
 		return -1;
+	out_channels = 3;
 	for (i = 0; i < convnet->count; i++)
 	{
 		ccv_convnet_layer_t* layer = convnet->layers + i;
 		if (i > 0 && (out_rows != layer->input.matrix.rows || out_cols != layer->input.matrix.cols))
 			return -1;
+		// the input channels should be equal to the previous output channels, skip this check for full connect as it is meaningless
+		if (out_channels != layer->input.matrix.channels && layer->type != CCV_CONVNET_FULL_CONNECT)
+			return -1;
 		ccv_convnet_make_output(layer, layer->input.matrix.rows, layer->input.matrix.cols, &out_rows, &out_cols, &out_partition);
+		if (layer->type == CCV_CONVNET_CONVOLUTIONAL)
+		{
+			// check to see if the input matrix channel is equal to the expected input of the convolutional layer filters
+			if (layer->input.matrix.channels != layer->net.convolutional.channels)
+				return -1;
+			// if this layer is convolutional layer, its filter output should equal to next layer's channel input
+			out_channels = layer->net.convolutional.count;
+		}
 	}
 	if (out_rows * out_cols != output)
 		return -1;
@@ -783,7 +798,8 @@ void ccv_convnet_classify(ccv_convnet_t* convnet, ccv_dense_matrix_t** a, int sy
 			}
 			ccv_matrix_free(b[scan + 1]);
 			memset(b + 1, 0, sizeof(ccv_dense_matrix_t*) * (scan + 1));
-			ccv_flip(b[0], &b[0], 0, CCV_FLIP_X);
+			if (t < !!symmetric)
+				ccv_flip(b[0], &b[0], 0, CCV_FLIP_X);
 		}
 		ccv_matrix_free(b[0]);
 		// now have everything in c, do the last full connect propagate

@@ -1,25 +1,41 @@
 include ../../lib/config.mk
 
-# CC += -g -fsanitize=address -fno-omit-frame-pointer # -fprofile-arcs -ftest-coverage
 LDFLAGS := -L"../../lib" -lccv $(LDFLAGS)
 CFLAGS := -O3 -Wall -I"../../lib" -I"../" $(CFLAGS)
 TARGETS = defects.l0.1.tests
 
+TARGET_SRCS := $(patsubst %,%.c,$(TARGETS))
+
+.PRECIOUS: $(patsubst %,%.o,$(TARGETS))
+
+.PHONY: release all test clean dep
+
+release: all
+
+include ../../lib/scheme.mk
+
 all: $(TARGETS)
 
-test: all
-	@for test in $(TARGETS) ; do ./"$$test" || exit ; done
+test:
+	@for test in $(TARGETS) ; do LLVM_PROFILE_FILE="$$test.profraw" ./"$$test" || exit ; done
 
 clean:
 	${MAKE} clean -C ../../lib ; rm -f *.o $(TARGETS)
 
 %.tests: %.tests.o libccv.a
-	@echo "$(CC) -o $@ $< $(LDFLAGS)"
-	@$(CC) -o $@ $< $(LDFLAGS)
+	$(CC) -o $@ $< $(LDFLAGS)
 
 libccv.a:
 	${MAKE} -C ../../lib
 
-%.o: %.c ../../lib/ccv.h
-	@echo "$(CC) $< -o $@ -c $(CFLAGS)"
-	@$(CC) $< -o $@ -c $(CFLAGS)
+%.o: %.c
+	$(CC) $< -o $@ -c $(CFLAGS)
+
+.gitignore:
+	echo $(TARGETS) | tr ' ' '\n' > .gitignore
+
+dep: .dep.mk
+.dep.mk: $(TARGET_SRCS)
+	$(CC) $(CFLAGS) -MM $^ > .dep.mk
+
+-include .dep.mk

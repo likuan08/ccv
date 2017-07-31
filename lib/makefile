@@ -1,21 +1,33 @@
 include config.mk
 
-# CC += -g -fsanitize=address -fno-omit-frame-pointer # -fprofile-arcs -ftest-coverage
-CFLAGS := -O3 -ffast-math -Wall $(CFLAGS)
+CFLAGS := -O3 -ffast-math -Wall -I"." $(CFLAGS)
 NVFLAGS := -O3 $(NVFLAGS)
 
-.PHONY: all clean
+SRCS := ccv_cache.c ccv_memory.c 3rdparty/siphash/siphash24.c 3rdparty/kissfft/kiss_fft.c 3rdparty/kissfft/kiss_fftnd.c 3rdparty/kissfft/kiss_fftr.c 3rdparty/kissfft/kiss_fftndr.c 3rdparty/kissfft/kissf_fft.c 3rdparty/kissfft/kissf_fftnd.c 3rdparty/kissfft/kissf_fftr.c 3rdparty/kissfft/kissf_fftndr.c 3rdparty/dsfmt/dSFMT.c 3rdparty/sfmt/SFMT.c 3rdparty/sqlite3/sqlite3.c ccv_io.c ccv_numeric.c ccv_algebra.c ccv_util.c ccv_basic.c ccv_image_processing.c ccv_resample.c ccv_transform.c ccv_classic.c ccv_daisy.c ccv_sift.c ccv_bbf.c ccv_mser.c ccv_swt.c ccv_dpm.c ccv_tld.c ccv_ferns.c ccv_icf.c ccv_scd.c ccv_convnet.c ccv_output.c
 
-all: libccv.a ../samples/image-net-2012-vgg-d.sqlite3
+SRC_OBJS := $(patsubst %.c,%.o,$(SRCS))
+
+CUDA_OBJS := $(patsubst %.c,%.o,$(patsubst %.cu,%.o,$(CUDA_SRCS)))
+
+# Make nnc/libnnc.o a phony target therefore it will be triggered every time.
+.PHONY: release all lib clean dep nnc/libnnc.o
+
+release: all
+
+include scheme.mk
+
+all: lib ../samples/image-net-2012-vgg-d.sqlite3
+
+lib: libccv.a
 
 clean:
-	rm -f *.o 3rdparty/sha1/*.o 3rdparty/sfmt/*.o 3rdparty/kissfft/*.o 3rdparty/dsfmt/*.o 3rdparty/sqlite3/*.o cuda/*.o libccv.a
+	${MAKE} -C ./nnc clean && rm -f $(SRC_OBJS) $(CUDA_OBJS) libccv.a
 
-libccv.a: ccv_cache.o ccv_memory.o 3rdparty/sha1/sha1.o 3rdparty/kissfft/kiss_fft.o 3rdparty/kissfft/kiss_fftnd.o 3rdparty/kissfft/kiss_fftr.o 3rdparty/kissfft/kiss_fftndr.o 3rdparty/kissfft/kissf_fft.o 3rdparty/kissfft/kissf_fftnd.o 3rdparty/kissfft/kissf_fftr.o 3rdparty/kissfft/kissf_fftndr.o 3rdparty/dsfmt/dSFMT.o 3rdparty/sfmt/SFMT.o 3rdparty/sqlite3/sqlite3.o ccv_io.o ccv_numeric.o ccv_algebra.o ccv_util.o ccv_basic.o ccv_image_processing.o ccv_resample.o ccv_transform.o ccv_classic.o ccv_daisy.o ccv_sift.o ccv_bbf.o ccv_mser.o ccv_swt.o ccv_dpm.o ccv_tld.o ccv_ferns.o ccv_icf.o ccv_scd.o ccv_convnet.o ccv_output.o $(CUDA_OBJS)
+libccv.a: $(SRC_OBJS) $(CUDA_OBJS) nnc/libnnc.o
 	$(AR) rcs $@ $^
 
-ccv_io.o: ccv_io.c ccv.h ccv_internal.h io/*.c
-	$(CC) $< -o $@ -c $(CFLAGS)
+nnc/libnnc.o:
+	${MAKE} -C ./nnc
 
 3rdparty/sqlite3/sqlite3.o: 3rdparty/sqlite3/sqlite3.c
 	$(CC) $< -o $@ -c -O3 -D SQLITE_THREADSAFE=0 -D SQLITE_OMIT_LOAD_EXTENSION
@@ -23,8 +35,17 @@ ccv_io.o: ccv_io.c ccv.h ccv_internal.h io/*.c
 ../samples/image-net-2012-vgg-d.sqlite3:
 	../samples/download-vgg-d-model.sh
 
-%.o: %.c ccv.h ccv_internal.h cuda/cwc.h cuda/cwc_helper.h
+%.o: %.c
 	$(CC) $< -o $@ -c $(CFLAGS)
 
-%.o: %.cu ccv.h cuda/cwc.h cuda/cwc_internal.h cuda/cwc_helper.h
+%.o: %.cu
 	$(NVCC) $< -o $@ -c $(NVFLAGS)
+
+dep: .dep.mk
+.dep.mk: $(SRCS) $(CUDA_SRCS)
+	$(CC) $(CFLAGS) -MM $(patsubst %.cu,,$^) > .dep.mk
+ifneq ($(CUDA_SRCS),)
+	$(NVCC) $(NVFLAGS) -M $(patsubst %.c,,$^) >> .dep.mk
+endif
+
+-include .dep.mk
